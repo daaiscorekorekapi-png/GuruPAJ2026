@@ -844,58 +844,53 @@ function printKunci(){
     setTimeout(function(){iframe.contentWindow.focus();iframe.contentWindow.print();setTimeout(function(){try{document.body.removeChild(iframe)}catch(e){}},3000)},500);
 }
 
-/* ==================== INISIALISASI & REALTIME LISTENER (PERBAIKAN) ==================== */
+/* ==================== INISIALISASI & REALTIME LISTENER (PERBAIKAN UTAMA) ==================== */
 function initApp(){
-    // Listener Kecamatan
+    // 1. Kecamatan (DB SAT - Data Master)
     dbSAT.collection('kecamatan').onSnapshot(function(snap){
         kecamatanList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
         populateRegKecDropdown();
         if(isSuperAdmin() && document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='admin-kecamatan') renderAdminKecamatan(document.getElementById('pageContent'));
     });
 
-    // Listener Guru
+    // 2. Guru & Data Sekolah (DB SAT - Data Master)
     dbSAT.collection('teachers').onSnapshot(function(snap){
         allTeachersCache=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
-        // Filter sekolah unik dari data guru untuk dropdown Pengawas
         var uniqueSchools={};
-        allTeachersCache.forEach(function(t){
-            if(t.npsn && t.namaSekolah && !uniqueSchools[t.npsn]){
-                uniqueSchools[t.npsn] = {npsn:t.npsn, sekolah:t.namaSekolah, kec:t.kecamatanId};
-            }
-        });
+        allTeachersCache.forEach(function(t){ if(t.npsn && t.namaSekolah && !uniqueSchools[t.npsn]){ uniqueSchools[t.npsn] = {npsn:t.npsn, sekolah:t.namaSekolah, kec:t.kecamatanId}; } });
         allSchoolsList=Object.values(uniqueSchools);
-        
         if(isSuperAdmin() && document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='admin-guru') renderGuruTable();
         if(document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='pengawas-paj') renderPengawasList();
     });
     
-    // PERBAIKAN: Listener Pengawas berdasarkan Kecamatan, bukan NPSN. Agar sekolah lain di kecamatan yang sama bisa terlihat.
-    if(currentUser.kecamatanId){
+    if(currentUser && currentUser.kecamatanId){
+        // 3. Pengawas (DB SAT - Data Operasional)
         dbSAT.collection('pengawas_paj').where('kecSekolahId', '==', currentUser.kecamatanId).onSnapshot(function(snap){
             pengawasList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
             if(document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='pengawas-paj') renderPengawasList();
         });
 
-        // PERBAIKAN: Listener Siswa berdasarkan Kecamatan agar data pengawas silang dan ruangan terbaca utuh
+        // 4. Siswa (DB SAT - Data Master)
         dbSAT.collection('students').where('kecamatanId', '==', currentUser.kecamatanId).onSnapshot(function(snap){
             students=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
             var activePage = document.querySelector('.nav-item.active');
-            if(activePage && (activePage.dataset.page==='data-siswa' || activePage.dataset.page==='dashboard')) refreshCurrentView();
+            if(activePage && (activePage.dataset.page==='data-siswa' || activePage.dataset.page==='dashboard' || activePage.dataset.page==='presensi-paj' || activePage.dataset.page==='denah-paj' || activePage.dataset.page==='kartu-paj')) refreshCurrentView();
         });
         
-        // PERBAIKAN: Listener Soal PAJ berdasarkan Kecamatan
+        // 5. PERBAIKAN PENTING: Soal PAJ WAJIB ambil dari DB PAJ
         dbPAJ.collection('questions_paj').where('kecamatanId', '==', currentUser.kecamatanId).onSnapshot(function(snap){
             questionsPAJ=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
-            if(document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='bank-paj') renderBankList();
+            var activePage = document.querySelector('.nav-item.active');
+            if(activePage && (activePage.dataset.page==='bank-paj' || activePage.dataset.page==='print-paj' || activePage.dataset.page==='kunci-paj' || activePage.dataset.page==='dashboard')) refreshCurrentView();
         });
 
-        // PERBAIKAN: Listener Token berdasarkan Kecamatan
+        // 6. Token Ujian (DB SAT - Data Operasional)
         dbSAT.collection('exam_tokens').where('kecamatanId', '==', currentUser.kecamatanId).onSnapshot(function(snap){
             examTokens=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
             if(document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='token-paj') renderTokenList();
         });
 
-        // PERBAIKAN: Listener Hasil Ujian berdasarkan Kecamatan
+        // 7. PERBAIKAN PENTING: Hasil Ujian PAJ WAJIB ambil dari DB PAJ
         dbPAJ.collection('exam_results').where('kecamatanId', '==', currentUser.kecamatanId).onSnapshot(function(snap){
             results=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
             if(document.querySelector('.nav-item.active') && document.querySelector('.nav-item.active').dataset.page==='koreksi-paj') renderKoreksiList();
@@ -904,7 +899,6 @@ function initApp(){
 }
 
 window.onload=function(){
-    // Sinkronkan dropdown kecamatan saat pertama kali load
     dbSAT.collection('kecamatan').orderBy('createdAt','asc').get().then(function(snap){
         kecamatanList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
         populateRegKecDropdown();
