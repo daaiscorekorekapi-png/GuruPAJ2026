@@ -628,80 +628,118 @@ function setupDenahDragDrop(){
 }
 
 function printDenahPAJ(){
-    var kelas=document.getElementById('denahKelas').value, ruang=document.getElementById('denahRuang').value;
+    var kelas = document.getElementById('denahKelas').value;
+    var ruang = document.getElementById('denahRuang').value;
+    
     if(!kelas){showToast('Pilih kelas','error');return}
-    var list=getMyStudentsRombel(currentUser.rombel).filter(function(s){return s.kelas===kelas});
+    
+    // Ambil data siswa berdasarkan kelas yang dipilih
+    var list = getMyStudentsRombel(currentUser.rombel).filter(function(s){return s.kelas===kelas});
     if(!list.length){showToast('Tidak ada siswa','error');return}
     
+    // Ambil data pengawas HANYA untuk ruang yang dipilih
     var myPengawas = pengawasList.filter(function(p){ return p.tujuanNpsn === currentUser.npsn && p.ruangTujuan === ruang });
     var pengawas1 = myPengawas[0] || null;
     var pengawas2 = myPengawas[1] || null;
     
+    // Tentukan Index Ruang (A=0, B=1, dst)
+    var roomIndex = 0;
+    if(ruang === 'B') roomIndex = 1;
+    else if(ruang === 'C') roomIndex = 2;
+    else if(ruang === 'D') roomIndex = 3;
+    else if(ruang === 'E') roomIndex = 4;
+
+    // Hitung struktur ruang (hanya untuk kebutuhan grid/ukuran)
     var rooms = calculateRoomAllocation(list.length);
     var roomLabels = ["(Utama)", "(Tambahan 1)", "(Tambahan 2)", "(Tambahan 3)"];
     
-    var iframe=document.createElement('iframe');
-    iframe.style.cssText='position:fixed;left:-9999px;top:0;width:210mm;height:297mm';
+    // AMBIL DATA RUANG YANG SEDANG DIPILIH SAJA
+    // Jika ruang yang dipilih belum ada di memori (misal user baru pilih ruang B langsung tanpa lihat preview), inisialisasi dulu
+    if(!denahArranged[roomIndex]) {
+        // Paksa update dulu agar data terisi
+        // (Kita copy logika singkat dari updateDenahPreview untuk memastikan data ada)
+        var rm = rooms[roomIndex];
+        if(!rm) { showToast('Ruang tidak valid', 'error'); return; }
+        var totalCells = rm.rows * rm.cols;
+        var spiralMap = generateSpiralMap(rm.rows, rm.cols);
+        denahArranged[roomIndex] = new Array(totalCells).fill(null);
+        
+        // Cari posisi start siswa
+        var startIdx = 0;
+        for(var k=0; k<roomIndex; k++) startIdx += (rooms[k] ? rooms[k].count : 0);
+        
+        for(var i=0; i<rm.count; i++){
+            if(list[startIdx + i]) {
+                var targetPos = i + 1;
+                var physicalPos = spiralMap.indexOf(targetPos);
+                if(physicalPos !== -1) denahArranged[roomIndex][physicalPos] = list[startIdx + i];
+            }
+        }
+    }
+
+    // Variabel 'rm' adalah struktur fisik ruang (baris/kolom)
+    var rm = rooms[roomIndex]; 
+    // Variabel 'arrangedData' adalah posisi siswa yang SUDAH DIATUR USER
+    var arrangedData = denahArranged[roomIndex] || new Array(rm.rows * rm.cols).fill(null);
+    
+    // --- PROSES CETAK ---
+    var iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;height:297mm';
     document.body.appendChild(iframe);
-    var doc=iframe.contentDocument||iframe.contentWindow.document;
+    var doc = iframe.contentDocument || iframe.contentWindow.document;
     doc.open();
     
     var printStyles='<style>@page { size: A4 portrait; margin: 8mm; } body { margin: 0; padding: 0; } img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }</style>';
     doc.write('<!DOCTYPE html><html><head><title>Denah PAJ</title>'+printStyles+'</head><body>');
     
-    rooms.forEach(function(room, roomIndex) {
-        var spiralMap = generateSpiralMap(room.rows, room.cols);
-        var roomStudentCount = 0;
-        for(var i = 0; i < (room.rows * room.cols); i++) {
-            if(denahArranged[roomIndex] && denahArranged[roomIndex][i]) roomStudentCount++;
-        }
-        var label = roomLabels[roomIndex] || '(Ruang ' + (roomIndex+1) + ')';
-        
-        doc.write('<div style="page-break-after: always; width: 100%; height: 100vh; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; padding: 2mm; font-family: Arial, sans-serif;">');
-        doc.write('<h2 style="text-align:center; font-size: 18pt; font-weight: bold; text-decoration: underline; margin-bottom: 15px; color: #000;">Ruang '+ruang+' '+label+' ('+roomStudentCount+' Siswa)</h2>');
-        doc.write('<table style="width: 100%; height: 85vh; border-collapse: collapse; table-layout: fixed; border: 4px solid #000;">');
-        
-        // CETAK PENGELOMPOKAN PENGAWAS (2 KOLOM) + JARAK
-        doc.write('<tr style="height: 18%;">');
-        
-        // Pengawas 1
-        doc.write('<td colspan="2" style="border: 3px solid #000; padding: 15px; text-align: center; background: #f0f0f0; border-bottom: 5px solid #000; padding-bottom: 25px;">');
-        if(pengawas1 && pengawas1.foto) doc.write('<img src="'+pengawas1.foto+'" class="print-img" style="width:70px;height:70px;border-radius:50%;object-fit:cover;margin-bottom:8px;">');
-        doc.write('<div style="font-size: 14pt; font-weight: bold; color: #000;">'+(pengawas1 ? escHtml(pengawas1.nama) : 'Pengawas 1')+'</div>');
-        doc.write('<div style="font-size: 10pt; color: #555;">'+(pengawas1 ? escHtml(pengawas1.nip) : '')+'</div></td>');
-        
-        // Pengawas 2
-        doc.write('<td colspan="2" style="border: 3px solid #000; padding: 15px; text-align: center; background: #f0f0f0; border-bottom: 5px solid #000; padding-bottom: 25px;">');
-        if(pengawas2 && pengawas2.foto) doc.write('<img src="'+pengawas2.foto+'" class="print-img" style="width:70px;height:70px;border-radius:50%;object-fit:cover;margin-bottom:8px;">');
-        doc.write('<div style="font-size: 14pt; font-weight: bold; color: #000;">'+(pengawas2 ? escHtml(pengawas2.nama) : 'Pengawas 2')+'</div>');
-        doc.write('<div style="font-size: 10pt; color: #555;">'+(pengawas2 ? escHtml(pengawas2.nip) : '')+'</div></td>');
-        
-        doc.write('</tr>');
-        
-        // CETAK KURSI SISWA (5 BARIS, 4 KOLOM)
-        for(var row=0; row<room.rows; row++){
-            doc.write('<tr style="height: 16.4%;">');
-            for(var col=0; col<room.cols; col++){
-                var idx=(row*room.cols)+col;
-                var s=denahArranged[roomIndex][idx];
-                var cellStyle='border: 3px solid #000; width: '+(100/room.cols)+'%; text-align: center; vertical-align: middle; padding: 10px 6px; word-wrap: break-word;';
-                
-                if(s){
-                    var sekolah = s.namaSekolah || currentUser.namaSekolah || '-';
-                    doc.write('<td style="'+cellStyle+' padding-top: 15px;">');
-                    if(s.foto) doc.write('<img src="'+s.foto+'" class="print-img" style="width:45px;height:45px;border-radius:50%;object-fit:cover;margin-bottom:3px;">');
-                    doc.write('<div style="font-size: 12pt; font-weight: bold; line-height: 1.1; color: #000;">'+escHtml(s.nama)+'</div>');
-                    doc.write('<div style="font-size: 9pt; color: #555; margin-top: 2px;">'+(s.pesertaUjian||s.nisn||'-')+'</div>');
-                    doc.write('<div style="font-size: 8pt; color: #777; font-style: italic;">'+escHtml(sekolah)+'</div>');
-                    doc.write('</td>');
-                } else {
-                    doc.write('<td style="'+cellStyle+' background: #f9f9f9;"></td>');
-                }
+    var label = roomLabels[roomIndex] || '(Ruang ' + (roomIndex+1) + ')';
+    var roomStudentCount = arrangedData.filter(function(x){return x!==null}).length;
+    
+    // Hanya menulis 1 halaman (sesuai ruang yang dipilih)
+    doc.write('<div style="page-break-after: always; width: 100%; height: 100vh; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; padding: 2mm; font-family: Arial, sans-serif;">');
+    doc.write('<h2 style="text-align:center; font-size: 18pt; font-weight: bold; text-decoration: underline; margin-bottom: 15px; color: #000;">Ruang '+ruang+' '+label+' ('+roomStudentCount+' Siswa)</h2>');
+    doc.write('<table style="width: 100%; height: 85vh; border-collapse: collapse; table-layout: fixed; border: 4px solid #000;">');
+    
+    // 1. CETAK PENGELOMPOKAN PENGAWAS (Hanya Ruang Ini)
+    doc.write('<tr style="height: 18%;">');
+    
+    // Pengawas 1
+    doc.write('<td colspan="2" style="border: 3px solid #000; padding: 15px; text-align: center; background: #f0f0f0; border-bottom: 5px solid #000; padding-bottom: 25px;">');
+    if(pengawas1 && pengawas1.foto) doc.write('<img src="'+pengawas1.foto+'" class="print-img" style="width:70px;height:70px;border-radius:50%;object-fit:cover;margin-bottom:8px;">');
+    doc.write('<div style="font-size: 14pt; font-weight: bold; color: #000;">'+(pengawas1 ? escHtml(pengawas1.nama) : 'Pengawas 1')+'</div>');
+    doc.write('<div style="font-size: 10pt; color: #555;">'+(pengawas1 ? escHtml(pengawas1.nip) : '')+'</div></td>');
+    
+    // Pengawas 2
+    doc.write('<td colspan="2" style="border: 3px solid #000; padding: 15px; text-align: center; background: #f0f0f0; border-bottom: 5px solid #000; padding-bottom: 25px;">');
+    if(pengawas2 && pengawas2.foto) doc.write('<img src="'+pengawas2.foto+'" class="print-img" style="width:70px;height:70px;border-radius:50%;object-fit:cover;margin-bottom:8px;">');
+    doc.write('<div style="font-size: 14pt; font-weight: bold; color: #000;">'+(pengawas2 ? escHtml(pengawas2.nama) : 'Pengawas 2')+'</div>');
+    doc.write('<div style="font-size: 10pt; color: #555;">'+(pengawas2 ? escHtml(pengawas2.nip) : '')+'</div></td>');
+    
+    doc.write('</tr>');
+    
+    // 2. CETAK KURSI SISWA (Loop sesuai rows/cols ruang yang dipilih)
+    for(var row=0; row<rm.rows; row++){
+        doc.write('<tr style="height: 16.4%;">');
+        for(var col=0; col<rm.cols; col++){
+            var idx=(row*rm.cols)+col;
+            var s = arrangedData[idx]; // Ambil data dari array yang sudah diatur user
+            var cellStyle='border: 3px solid #000; width: '+(100/rm.cols)+'%; text-align: center; vertical-align: middle; padding: 10px 6px; word-wrap: break-word;';
+            
+            if(s){
+                var sekolah = s.namaSekolah || currentUser.namaSekolah || '-';
+                doc.write('<td style="'+cellStyle+' padding-top: 15px;">');
+                if(s.foto) doc.write('<img src="'+s.foto+'" class="print-img" style="width:45px;height:45px;border-radius:50%;object-fit:cover;margin-bottom:3px;">');
+                doc.write('<div style="font-size: 12pt; font-weight: bold; line-height: 1.1; color: #000;">'+escHtml(s.nama)+'</div>');
+                doc.write('<div style="font-size: 9pt; color: #555; margin-top: 2px;">'+(s.pesertaUjian||s.nisn||'-')+'</div>');
+                doc.write('<div style="font-size: 8pt; color: #777; font-style: italic;">'+escHtml(sekolah)+'</div>');
+                doc.write('</td>');
+            } else {
+                doc.write('<td style="'+cellStyle+' background: #f9f9f9;"></td>');
             }
-            doc.write('</tr>');
         }
-        doc.write('</table></div>');
-    });
+        doc.write('</tr>');
+    }
+    doc.write('</table></div>');
     
     // Script patch CORS gambar
     doc.write('<script>');
