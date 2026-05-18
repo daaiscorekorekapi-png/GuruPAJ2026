@@ -702,40 +702,76 @@ function printDocFromView(elementId){var s=document.getElementById(elementId);if
 
 /* ==================== INISIALISASI & REALTIME LISTENER ==================== */
 function initApp(){
-    dbSAT.collection('kecamatan').onSnapshot(function(snap){kecamatanList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});populateRegKecDropdown();});
-
-    dbSAT.collection('teachers').onSnapshot(function(snap){
-        allTeachersCache=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
-        var uniqueSchools={};allTeachersCache.forEach(function(t){if(t.npsn&&t.namaSekolah&&!uniqueSchools[t.npsn]){uniqueSchools[t.npsn]={npsn:t.npsn,sekolah:t.namaSekolah,kec:t.kecamatanId};}});allSchoolsList=Object.values(uniqueSchools);
-        var ap=document.querySelector('.nav-item.active');if(ap){var pg=ap.dataset.page;if(pg==='admin-guru')renderGuruTable();if(pg==='pengawas-paj')renderPengawasList();}
+    // 1. Kecamatan (Tetap onSnapshot karena datanya sedikit)
+    dbSAT.collection('kecamatan').onSnapshot(function(snap){
+        kecamatanList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+        populateRegKecDropdown();
     });
+
+    // 2. Teachers (Diubah ke GET agar tidak download semua guru terus menerus)
+    dbSAT.collection('teachers').get().then(function(snap){
+        allTeachersCache=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+        var uniqueSchools={};
+        allTeachersCache.forEach(function(t){
+            if(t.npsn&&t.namaSekolah&&!uniqueSchools[t.npsn]){
+                uniqueSchools[t.npsn]={npsn:t.npsn,sekolah:t.namaSekolah,kec:t.kecamatanId};
+            }
+        });
+        allSchoolsList=Object.values(uniqueSchools);
+        var ap=document.querySelector('.nav-item.active');
+        if(ap){var pg=ap.dataset.page;if(pg==='admin-guru')renderGuruTable();if(pg==='pengawas-paj')renderPengawasList();}
+    }).catch(function(e){ console.error("Gagal memuat guru:", e); });
     
     if(currentUser&&currentUser.kecamatanId){
-        dbSAT.collection('pengawas_paj').where('kecSekolahId','==',currentUser.kecamatanId).onSnapshot(function(snap){pengawasList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});var ap=document.querySelector('.nav-item.active');if(ap&&ap.dataset.page==='pengawas-paj')renderPengawasList();});
+        // 3. Pengawas (Diubah ke GET)
+        dbSAT.collection('pengawas_paj').where('kecSekolahId','==',currentUser.kecamatanId).get().then(function(snap){
+            pengawasList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+            var ap=document.querySelector('.nav-item.active');
+            if(ap&&ap.dataset.page==='pengawas-paj')renderPengawasList();
+        }).catch(function(e){ console.error("Gagal memuat pengawas:", e); });
 
-        dbSAT.collection('students').where('kecamatanId','==',currentUser.kecamatanId).onSnapshot(function(snap){students=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});var ap=document.querySelector('.nav-item.active');if(ap&&(ap.dataset.page==='data-siswa'||ap.dataset.page==='dashboard'||ap.dataset.page==='presensi-paj'||ap.dataset.page==='denah-paj'||ap.dataset.page==='kartu-paj'))refreshCurrentView();});
+        // 4. STUDENTS (Diubah ke GET - Ini yang paling menghemat kuota!)
+        dbSAT.collection('students').where('kecamatanId','==',currentUser.kecamatanId).get().then(function(snap){
+            students=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+            var ap=document.querySelector('.nav-item.active');
+            if(ap&&(ap.dataset.page==='data-siswa'||ap.dataset.page==='dashboard'||ap.dataset.page==='presensi-paj'||ap.dataset.page==='denah-paj'||ap.dataset.page==='kartu-paj'))refreshCurrentView();
+        }).catch(function(e){ console.error("Gagal memuat siswa:", e); });
         
-        dbPAJ.collection('questions_paj').where('kecamatanId','==',currentUser.kecamatanId).onSnapshot(function(snap){questionsPAJ=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});var ap=document.querySelector('.nav-item.active');if(ap&&(ap.dataset.page==='bank-paj'||ap.dataset.page==='print-paj'||ap.dataset.page==='kunci-paj'||ap.dataset.page==='dashboard'))refreshCurrentView();});
+        // 5. Questions PAJ (Diubah ke GET)
+        dbPAJ.collection('questions_paj').where('kecamatanId','==',currentUser.kecamatanId).get().then(function(snap){
+            questionsPAJ=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+            var ap=document.querySelector('.nav-item.active');
+            if(ap&&(ap.dataset.page==='bank-paj'||ap.dataset.page==='print-paj'||ap.dataset.page==='kunci-paj'||ap.dataset.page==='dashboard'))refreshCurrentView();
+        }).catch(function(e){ console.error("Gagal memuat soal:", e); });
 
-        dbSAT.collection('exam_tokens').where('kecamatanId','==',currentUser.kecamatanId).onSnapshot(function(snap){examTokens=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});var ap=document.querySelector('.nav-item.active');if(ap&&ap.dataset.page==='token-paj')renderTokenList();});
+        // 6. Tokens (Diubah ke GET)
+        dbSAT.collection('exam_tokens').where('kecamatanId','==',currentUser.kecamatanId).get().then(function(snap){
+            examTokens=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+            var ap=document.querySelector('.nav-item.active');
+            if(ap&&ap.dataset.page==='token-paj')renderTokenList();
+        }).catch(function(e){ console.error("Gagal memuat token:", e); });
 
-        dbPAJ.collection('exam_results').where('kecamatanId','==',currentUser.kecamatanId).onSnapshot(function(snap){results=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});var ap=document.querySelector('.nav-item.active');if(ap&&ap.dataset.page==='koreksi-paj')renderKoreksiList();});
+        // 7. Results PAJ (Diubah ke GET)
+        dbPAJ.collection('exam_results').where('kecamatanId','==',currentUser.kecamatanId).get().then(function(snap){
+            results=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
+            var ap=document.querySelector('.nav-item.active');
+            if(ap&&ap.dataset.page==='koreksi-paj')renderKoreksiList();
+        }).catch(function(e){ console.error("Gagal memuat hasil:", e); });
         
+        // 8. Denah (Diubah ke GET)
         if(currentUser.npsn){
-            dbSAT.collection('denah_paj').where('npsn','==',currentUser.npsn).onSnapshot(function(snap){
-                savedDenahMap={};snap.docs.forEach(function(doc){var d=doc.data();if(d.map){Object.keys(d.map).forEach(function(key){savedDenahMap[key]=d.map[key];});}});
-                var ap=document.querySelector('.nav-item.active');if(ap&&ap.dataset.page==='denah-paj')updateDenahPreview();
-            });
+            dbSAT.collection('denah_paj').where('npsn','==',currentUser.npsn).get().then(function(snap){
+                savedDenahMap={};
+                snap.docs.forEach(function(doc){
+                    var d=doc.data();
+                    if(d.map){Object.keys(d.map).forEach(function(key){savedDenahMap[key]=d.map[key];});}
+                });
+                var ap=document.querySelector('.nav-item.active');
+                if(ap&&ap.dataset.page==='denah-paj')updateDenahPreview();
+            }).catch(function(e){ console.error("Gagal memuat denah:", e); });
         }
     }
 }
-
-window.onload=function(){
-    dbSAT.collection('kecamatan').orderBy('createdAt','asc').get().then(function(snap){
-        kecamatanList=snap.docs.map(function(d){return Object.assign({id:d.id},d.data())});
-        populateRegKecDropdown();showAuth('login');
-    }).catch(function(e){populateRegKecDropdown();showAuth('login');});
-};
 </script>
 </body>
 </html>
